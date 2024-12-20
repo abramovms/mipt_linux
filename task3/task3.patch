@@ -1,0 +1,70 @@
+diff --git a/linux-6.7.4/fs/proc/base.c b/linux-6.7.4/fs/proc/base.c
+index dd31e3b6b..ff5d5aa17 100644
+--- a/linux-6.7.4/fs/proc/base.c
++++ b/linux-6.7.4/fs/proc/base.c
+@@ -488,6 +488,20 @@ static int proc_pid_schedstat(struct seq_file *m, struct pid_namespace *ns,
+ }
+ #endif
+
++/*
++ * Provides /proc/PID/schedcounter
++ */
++static int proc_pid_schedstat(struct seq_file *m, struct pid_namespace *ns,
++                             struct pid *pid, struct task_struct *task)
++{
++       if (unlikely(!sched_info_on()))
++               seq_puts(m, "0\n");
++       else
++               seq_printf(m, "%d\n", atomic_read(&task->sched_counter));
++
++       return 0;
++}
++
+ #ifdef CONFIG_LATENCYTOP
+ static int lstats_show_proc(struct seq_file *m, void *v)
+ {
+@@ -3305,6 +3319,7 @@ static const struct pid_entry tgid_base_stuff[] = {
+ #ifdef CONFIG_SCHED_INFO
+        ONE("schedstat",  S_IRUGO, proc_pid_schedstat),
+ #endif
++       ONE("sched_counter",  S_IRUGO, proc_pid_sched_counter),
+ #ifdef CONFIG_LATENCYTOP
+        REG("latency",  S_IRUGO, proc_lstats_operations),
+ #endif
+diff --git a/linux-6.7.4/include/linux/sched.h b/linux-6.7.4/include/linux/sched.h
+index 292c31697..60194a37a 100644
+--- a/linux-6.7.4/include/linux/sched.h
++++ b/linux-6.7.4/include/linux/sched.h
+@@ -1404,7 +1404,7 @@ struct task_struct {
+        /* Pause tracing: */
+        atomic_t                        tracing_graph_pause;
+ #endif
+-
++       atomic_t                        sched_counter;
+ #ifdef CONFIG_TRACING
+        /* Bitmask and counter of trace recursion: */
+        unsigned long                   trace_recursion;
+diff --git a/linux-6.7.4/init/init_task.c b/linux-6.7.4/init/init_task.c
+index 5727d4214..e8f09f25e 100644
+--- a/linux-6.7.4/init/init_task.c
++++ b/linux-6.7.4/init/init_task.c
+@@ -198,6 +198,7 @@ struct task_struct init_task
+        .ret_stack              = NULL,
+        .tracing_graph_pause    = ATOMIC_INIT(0),
+ #endif
++       .sched_counter          = ATOMIC_INIT(0),
+ #if defined(CONFIG_TRACING) && defined(CONFIG_PREEMPTION)
+        .trace_recursion = 0,
+ #endif
+diff --git a/linux-6.7.4/kernel/sched/core.c b/linux-6.7.4/kernel/sched/core.c
+index a708d225c..1d7d4d740 100644
+--- a/linux-6.7.4/kernel/sched/core.c
++++ b/linux-6.7.4/kernel/sched/core.c
+@@ -6650,6 +6650,7 @@ static void __sched notrace __schedule(unsigned int sched_mode)
+        }
+
+        next = pick_next_task(rq, prev, &rf);
++       atomic_inc(&next->sched_counter);
+        clear_tsk_need_resched(prev);
+        clear_preempt_need_resched();
+ #ifdef CONFIG_SCHED_DEBUG
